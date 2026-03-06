@@ -113,7 +113,7 @@ stages:
               runOptions: commands
               commands: |
                 set -e
-                sudo -u postgres psql -c "\du"
+                echo "$(STAGINGUSERPASSWORD)" | sudo -S -p '' -u postgres psql -c "\du"
                 echo "$(STAGINGUSERPASSWORD)" | sudo -S -p '' chmod +x $(restoreDBscript)
                 echo "$(STAGINGUSERPASSWORD)" | sudo -S -p '' $(restoreDBscript) \
                     "$(DB_PASSWORD)" \
