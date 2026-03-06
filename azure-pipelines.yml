@@ -9,8 +9,10 @@ pool:
 
 variables:
   repoUrl: 'https://github.com/souravb-smu/odoo17.git'
-  updateScript: '/home/azureuser/deploy-temp/update_code.sh'
   stagePath: '/home/azureuser/'
+  updateScript: '$(stagePath)/deploy-temp/update_code.sh'
+  dbName: 'odoo'
+  dbUser: 'odoo17'
 
 stages:
 
@@ -91,6 +93,50 @@ stages:
                 cd deploy-temp
                 rm -f .DS_Store
                 rm -rf .github
+                
+        # --- Copy compressed SQL to VM ---
+        - task: CopyFilesOverSSH@0
+          displayName: "Upload odoo.sql.gz to VM"
+          inputs:
+            sshEndpoint: 'ssh-odoo17'
+            sourceFolder: '$(Agent.TempDirectory)'
+            contents: 'odoo.sql.gz'
+            targetFolder: '$(stagePath)/deploy-temp'
+
+        # --- Uncompress SQL on VM ---
+        - task: SSH@0
+          displayName: "Uncompress odoo.sql.gz on VM"
+          inputs:
+            sshEndpoint: 'ssh-odoo17'
+            runOptions: commands
+            commands: |
+              set -e
+              cd $(stagePath)/deploy-temp
+              echo "Uncompressing odoo.sql.gz..."
+              gunzip -c odoo.sql.gz > odoo.sql
+              echo "Uncompress complete: $(stagePath)/deploy-temp/odoo.sql"
+
+        # --- Restore Database ---
+        - task: SSH@0
+          displayName: "Restore Database - Staging"
+          inputs:
+            sshEndpoint: 'ssh-odoo17'
+            runOptions: commands
+            commands: |
+              set -e
+              export PGPASSWORD=$(DB_PASSWORD)
+              cd $(stagePath)/deploy-temp
+        
+              echo "Dropping database if exists..."
+              psql -U $(dbUser) -d postgres -c "DROP DATABASE IF EXISTS $(dbName);"
+        
+              echo "Creating database..."
+              psql -U $(dbUser) -d postgres -c "CREATE DATABASE $(dbName) OWNER $(dbUser);"
+        
+              echo "Restoring database from uncompressed SQL..."
+              psql -U $(dbUser) -d $(dbName) -f odoo.sql
+        
+              echo "Database restore completed!"
 
           - task: SSH@0
             displayName: "Run Update Script - Production"
