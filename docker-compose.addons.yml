@@ -1,0 +1,5 @@
+services:
+  odoo:
+    command: ["odoo", "-c", "/etc/odoo/odoo.with-extra.conf"]
+    volumes:
+      - ./docker/odoo.with-extra.conf:/etc/odoo/odoo.with-extra.conf:ro

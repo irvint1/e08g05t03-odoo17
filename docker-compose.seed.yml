@@ -1,0 +1,5 @@
+services:
+  db:
+    volumes:
+      # Use this only with an Odoo 18-compatible backup exported from this repo.
+      - ./backup/odoo18/odoo.sql.gz:/docker-entrypoint-initdb.d/01-odoo.sql.gz:ro

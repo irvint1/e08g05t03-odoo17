@@ -1,0 +1,10 @@
+dist/
+.env.vm
+odoo-erp-image.tar.gz
+*.tar
+*.tar.gz
+!backup/odoo18/*.tar.gz
+migration-data/
+extra-addons/
+addons/
+repo-addons/setup/

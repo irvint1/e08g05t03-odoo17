@@ -4,131 +4,152 @@ trigger:
       - Staging
       - master
 
-pool:
-  name: Default
+pr: none
 
 variables:
-  repoUrl: 'https://github.com/irvint1/e08g05t03-odoo17.git'
-  updateScript: '/home/is214/deploy-temp/update_code.sh'
-  stagePath: '/home/is214/'
-  tempDeploy: '/home/is214/deploy-temp'
+  vmImageName: 'ubuntu-latest'
+  bundleName: 'odoo18-vm-bundle'
+  artifactName: 'vm-bundle'
+  containerImage: 'odoo-erp:18.0-bundle'
+  stagingSshEndpoint: 'ssh-odoo17-staging'
+  productionSshEndpoint: 'ssh-odoo17-staging'
+  stagingVmDeployPath: '/opt/odoo18/staging'
+  productionVmDeployPath: '/opt/odoo18/production'
 
 stages:
+- stage: Build
+  displayName: Build VM Bundle
+  jobs:
+  - job: BuildBundle
+    displayName: Build Docker image and publish deployable bundle
+    pool:
+      vmImage: $(vmImageName)
+    steps:
+    - checkout: self
+      clean: true
 
-# =========================
-# STAGING STAGE
-# =========================
-- stage: Staging
+    - bash: |
+        set -euo pipefail
+        chmod +x scripts/build-vm-bundle.sh
+        scripts/build-vm-bundle.sh "$(containerImage)" "$(bundleName)"
+      displayName: Build Odoo 18 bundle
+
+    - task: PublishPipelineArtifact@1
+      displayName: Publish bundle folder artifact
+      inputs:
+        targetPath: '$(Build.SourcesDirectory)/dist/$(bundleName)'
+        artifact: '$(artifactName)'
+        publishLocation: 'pipeline'
+
+    - task: PublishPipelineArtifact@1
+      displayName: Publish bundle archive artifact
+      inputs:
+        targetPath: '$(Build.SourcesDirectory)/dist/$(bundleName).tar.gz'
+        artifact: '$(artifactName)-archive'
+        publishLocation: 'pipeline'
+
+- stage: DeployStaging
   displayName: Deploy to Staging
+  dependsOn: Build
   condition: eq(variables['Build.SourceBranchName'], 'Staging')
-
   jobs:
   - deployment: DeployStaging
+    displayName: Deploy bundle to staging VM
     environment: Staging
+    pool:
+      vmImage: $(vmImageName)
     strategy:
       runOnce:
         deploy:
           steps:
+          - download: current
+            artifact: $(artifactName)
 
-          # Sync code
           - task: SSH@0
-            displayName: "Sync Code - Staging"
+            displayName: Prepare staging deploy folder
             inputs:
-              sshEndpoint: 'ssh-odoo17-staging'
+              sshEndpoint: '$(stagingSshEndpoint)'
               runOptions: commands
               commands: |
-                set -e
-                echo "Deploying branch: $(Build.SourceBranchName)"
-                cd $(stagePath)
-                rm -rf deploy-temp *-odoo17
+                set -euo pipefail
+                mkdir -p "$(stagingVmDeployPath)"
+                find "$(stagingVmDeployPath)" -mindepth 1 -maxdepth 1 ! -name '.env.vm' -exec rm -rf {} +
 
-                git clone -b Staging $(repoUrl) --quiet
-                mv *-odoo17 deploy-temp
-
-                cd deploy-temp
-                rm -f .DS_Store
-                rm -rf .github
-
-          # Run update script
-          - task: SSH@0
-            displayName: "Run Update Script - Staging"
+          - task: CopyFilesOverSSH@0
+            displayName: Copy bundle to staging VM
             inputs:
-              sshEndpoint: 'ssh-odoo17-staging'
+              sshEndpoint: '$(stagingSshEndpoint)'
+              sourceFolder: '$(Pipeline.Workspace)/$(artifactName)'
+              contents: '**'
+              targetFolder: '$(stagingVmDeployPath)'
+              cleanTargetFolder: false
+              overwrite: true
+              readyTimeout: '20000'
+
+          - task: SSH@0
+            displayName: Start staging stack
+            inputs:
+              sshEndpoint: '$(stagingSshEndpoint)'
               runOptions: commands
               commands: |
-                echo "$(STAGINGUSERPASSWORD)" | sudo -S -p '' chmod +x $(updateScript)
-                echo "$(STAGINGUSERPASSWORD)" | sudo -S -p '' $(updateScript)
+                set -euo pipefail
+                cd "$(stagingVmDeployPath)"
+                if [ ! -f .env.vm ]; then
+                  cp .env.vm.example .env.vm
+                fi
+                chmod +x scripts/start-odoo-vm.sh
+                ./scripts/start-odoo-vm.sh
+                docker compose --env-file .env.vm -f docker-compose.vm.yml ps
 
-
-# =========================
-# PRODUCTION STAGE
-# =========================
-- stage: Production
+- stage: DeployProduction
   displayName: Deploy to Production
+  dependsOn: Build
   condition: eq(variables['Build.SourceBranchName'], 'master')
-
   jobs:
   - deployment: DeployProduction
+    displayName: Deploy bundle to production VM
     environment: Production
+    pool:
+      vmImage: $(vmImageName)
     strategy:
       runOnce:
         deploy:
           steps:
+          - download: current
+            artifact: $(artifactName)
 
-          # Sync code
           - task: SSH@0
-            displayName: "Sync Code - Production"
+            displayName: Prepare production deploy folder
             inputs:
-              sshEndpoint: 'ssh-odoo17-staging'
+              sshEndpoint: '$(productionSshEndpoint)'
               runOptions: commands
               commands: |
-                set -e
-                echo "Deploying branch: $(Build.SourceBranchName)"
-                cd $(stagePath)
-                rm -rf deploy-temp *-odoo17
+                set -euo pipefail
+                mkdir -p "$(productionVmDeployPath)"
+                find "$(productionVmDeployPath)" -mindepth 1 -maxdepth 1 ! -name '.env.vm' -exec rm -rf {} +
 
-                git clone -b master $(repoUrl) --quiet
-                mv *-odoo17 deploy-temp
-
-                cd deploy-temp
-                rm -f .DS_Store
-                rm -rf .github
-
-          # Uncompress SQL on VM
-          - task: SSH@0
-            displayName: "Uncompress odoo.sql.gz on VM"
+          - task: CopyFilesOverSSH@0
+            displayName: Copy bundle to production VM
             inputs:
-              sshEndpoint: 'ssh-odoo17-staging'
+              sshEndpoint: '$(productionSshEndpoint)'
+              sourceFolder: '$(Pipeline.Workspace)/$(artifactName)'
+              contents: '**'
+              targetFolder: '$(productionVmDeployPath)'
+              cleanTargetFolder: false
+              overwrite: true
+              readyTimeout: '20000'
+
+          - task: SSH@0
+            displayName: Start production stack
+            inputs:
+              sshEndpoint: '$(productionSshEndpoint)'
               runOptions: commands
               commands: |
-                set -e
-                cd $(stagePath)/deploy-temp/
-                echo "Uncompressing odoo.sql.gz..."
-                gunzip -c $(tempDeploy)/odoo.sql.gz > $(tempDeploy)/odoo.sql
-                echo "Uncompress complete: $(stagePath)/deploy-temp/odoo.sql"
-
-          # Restore Database
-          - task: SSH@0
-            displayName: "Restore Database"
-            inputs:
-              sshEndpoint: 'ssh-odoo17-staging'
-              runOptions: commands
-              commands: |
-                set -e
-                echo "$(STAGINGUSERPASSWORD)" | sudo -S -p '' cp /home/is214/deploy-temp/restore_db.sh /tmp/
-                echo "$(STAGINGUSERPASSWORD)" | sudo -S -p '' cp /home/is214/deploy-temp/odoo.sql /tmp/
-
-                echo "$(STAGINGUSERPASSWORD)" | sudo -S -p '' chmod +x /tmp/restore_db.sh
-                echo "$(STAGINGUSERPASSWORD)" | sudo -S -p '' chmod 644 /tmp/odoo.sql
-
-                echo "$(STAGINGUSERPASSWORD)" | sudo -S -p '' -u postgres bash /tmp/restore_db.sh "odoo17" "odoo" "/tmp/odoo.sql"
-
-          # Run update script
-          - task: SSH@0
-            displayName: "Run Update Script - Production"
-            inputs:
-              sshEndpoint: 'ssh-odoo17-staging'
-              runOptions: commands
-              commands: |
-                echo "$(STAGINGUSERPASSWORD)" | sudo -S -p '' chmod +x $(updateScript)
-                echo "$(STAGINGUSERPASSWORD)" | sudo -S -p '' $(updateScript)
+                set -euo pipefail
+                cd "$(productionVmDeployPath)"
+                if [ ! -f .env.vm ]; then
+                  cp .env.vm.example .env.vm
+                fi
+                chmod +x scripts/start-odoo-vm.sh
+                ./scripts/start-odoo-vm.sh
+                docker compose --env-file .env.vm -f docker-compose.vm.yml ps

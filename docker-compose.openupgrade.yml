@@ -1,0 +1,34 @@
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      POSTGRES_USER: ${POSTGRES_USER:-odoo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-odoo}
+    volumes:
+      - openupgrade-db-data:/var/lib/postgresql/data
+      - ./docker/initdb/00-create-legacy-role.sql:/docker-entrypoint-initdb.d/00-create-legacy-role.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-odoo} -d ${POSTGRES_DB:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  openupgrade:
+    build:
+      context: .
+      dockerfile: Dockerfile.openupgrade
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      HOST: db
+      USER: ${POSTGRES_USER:-odoo}
+      PASSWORD: ${POSTGRES_PASSWORD:-odoo}
+    volumes:
+      - ./migration-data/openupgrade/odoo:/var/lib/odoo
+      - ./repo-addons:/mnt/extra-addons:ro
+      - ./docker/openupgrade.conf:/etc/odoo/openupgrade.conf:ro
+
+volumes:
+  openupgrade-db-data:
