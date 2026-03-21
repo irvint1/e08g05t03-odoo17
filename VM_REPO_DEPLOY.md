@@ -50,7 +50,7 @@ Clone once:
 ```bash
 git clone <your-repo-url>
 cd odoo-github-pipeline
-chmod +x scripts/restore-repo-backup.sh scripts/redeploy-from-git.sh
+chmod +x scripts/restore-repo-backup.sh scripts/redeploy-from-git.sh scripts/install-vm-autostart.sh
 ```
 
 First restore from the committed backup:
@@ -64,6 +64,23 @@ Open:
 ```text
 http://<vm-ip>:8069
 ```
+
+## Make it start again after VM reboot
+
+The compose file already uses `restart: unless-stopped`, but that only helps after the containers exist. To make the compose stack itself come back reliably after reboot, install the VM boot service:
+
+```bash
+./scripts/install-vm-autostart.sh
+```
+
+Then verify:
+
+```bash
+sudo systemctl status odoo-compose.service
+docker compose -f docker-compose.yml -f docker-compose.addons.yml ps
+```
+
+If you ever move the repo to a different path on the VM, rerun the install script so the service points at the new location.
 
 ## On later code-only updates
 

@@ -101,6 +101,30 @@ chmod +x scripts/redeploy-from-git.sh
 ./scripts/redeploy-from-git.sh
 ```
 
+### 4b. If you want Odoo to come back automatically after a VM reboot
+Docker restart policies help only when the containers already exist and Docker comes back cleanly. To make the full compose stack come up reliably on boot, install the systemd wrapper:
+
+```bash
+chmod +x scripts/install-vm-autostart.sh
+./scripts/install-vm-autostart.sh
+```
+
+That creates a `systemd` service which runs:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.addons.yml up -d
+```
+
+on boot.
+
+Useful checks:
+
+```bash
+sudo systemctl status odoo-compose.service
+sudo journalctl -u odoo-compose.service -b
+docker compose -f docker-compose.yml -f docker-compose.addons.yml ps
+```
+
 ### 5. If you need to re-import the repo backup manually
 Only do this when `backup/odoo18/odoo.sql.gz` is already Odoo 18-compatible.
 
