@@ -2,6 +2,7 @@
 
 ## Which compose file to use
 - Use `docker-compose.yml` when you want the VM or your local machine to build from this repository.
+- The main deployment stack now uses `postgres:17` so it can restore the migrated Odoo 18 backup produced by OpenUpgrade.
 - Use `docker-compose.vm.yml` only for the prebuilt-image bundle workflow.
 - Use `docker-compose.addons.yml` when you want the upgraded Odoo 18 helpdesk addons enabled.
 
